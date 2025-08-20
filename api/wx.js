@@ -1,49 +1,32 @@
-import crypto from "crypto";
+// api/wx.js 临时调试版
+export default function handler(req, res) {
+  console.log("收到请求:", req.method, req.query);
 
-const TOKEN = "weixin"; // 和微信公众平台配置一致
-
-export default async function handler(req, res) {
   if (req.method === "GET") {
-    // --- 验证服务器配置 ---
-    const { signature, timestamp, nonce, echostr } = req.query;
-
-    const tmpArr = [TOKEN, timestamp, nonce].sort();
-    const tmpStr = tmpArr.join("");
-    const hash = crypto.createHash("sha1").update(tmpStr).digest("hex");
-
-    if (hash === signature) {
-      res.status(200).send(echostr); // 验证成功
-    } else {
-      res.status(403).send("Invalid signature");
-    }
+    // 直接返回 echostr，忽略 signature
+    const { echostr } = req.query;
+    res.status(200).send(echostr || "ok");
   } else if (req.method === "POST") {
-    // --- 微信消息 ---
     let body = "";
-    req.on("data", chunk => {
-      body += chunk;
-    });
-
+    req.on("data", chunk => { body += chunk; });
     req.on("end", () => {
-      console.log("📩 收到微信消息:", body);
+      console.log("收到 POST 消息:", body);
 
-      // 简单匹配 FromUserName / ToUserName（避免用外部库）
+      // 固定回复文本
       const toUserMatch = body.match(/<FromUserName><!\[CDATA\[(.+?)\]\]><\/FromUserName>/);
       const fromUserMatch = body.match(/<ToUserName><!\[CDATA\[(.+?)\]\]><\/ToUserName>/);
-
       const toUser = toUserMatch ? toUserMatch[1] : "user";
       const fromUser = fromUserMatch ? fromUserMatch[1] : "server";
 
-      // 固定回复
       const reply = `
         <xml>
           <ToUserName><![CDATA[${toUser}]]></ToUserName>
           <FromUserName><![CDATA[${fromUser}]]></FromUserName>
           <CreateTime>${Math.floor(Date.now() / 1000)}</CreateTime>
           <MsgType><![CDATA[text]]></MsgType>
-          <Content><![CDATA[你好 👋！这是 Vercel 自动回复。]]></Content>
+          <Content><![CDATA[收到消息！]]></Content>
         </xml>
       `;
-
       res.setHeader("Content-Type", "application/xml");
       res.status(200).send(reply);
     });
