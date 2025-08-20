@@ -1,12 +1,14 @@
+// api/wx.js
 import crypto from "crypto";
-import { parseString } from "xml2js";
+import { parseStringPromise, Builder } from "xml2js";
 
-// 你在微信公众平台配置的 Token
-const TOKEN = "weixin";
+const TOKEN = "weixin"; // 微信后台配置的 Token
 
 export default async function handler(req, res) {
   if (req.method === "GET") {
+    // ----------------------
     // 微信服务器验证
+    // ----------------------
     const { signature, timestamp, nonce, echostr } = req.query;
 
     const tmpArr = [TOKEN, timestamp, nonce].sort();
@@ -19,38 +21,43 @@ export default async function handler(req, res) {
       res.status(403).send("Invalid signature");
     }
   } else if (req.method === "POST") {
+    // ----------------------
+    // 接收用户消息并自动回复
+    // ----------------------
     let body = "";
-    req.on("data", chunk => {
+    req.on("data", (chunk) => {
       body += chunk;
     });
-    req.on("end", () => {
-      console.log("收到微信消息：", body);
 
-      // 解析 XML
-      parseString(body, { explicitArray: false }, (err, result) => {
-        if (err) {
-          res.status(400).send("Invalid XML");
-          return;
-        }
-
+    req.on("end", async () => {
+      try {
+        // 解析 XML
+        const result = await parseStringPromise(body, { explicitArray: false });
         const msg = result.xml;
-        const fromUser = msg.FromUserName;
-        const toUser = msg.ToUserName;
 
-        // 构造回复（交换 from/to）
-        const reply = `
-          <xml>
-            <ToUserName><![CDATA[${fromUser}]]></ToUserName>
-            <FromUserName><![CDATA[${toUser}]]></FromUserName>
-            <CreateTime>${Math.floor(Date.now() / 1000)}</CreateTime>
-            <MsgType><![CDATA[text]]></MsgType>
-            <Content><![CDATA[你发了: ${msg.Content || "其他消息"}]]></Content>
-          </xml>
-        `;
+        console.log("收到消息：", msg);
+
+        const toUser = msg.FromUserName;   // 用户的 OpenID
+        const fromUser = msg.ToUserName;   // 公众号原始ID
+
+        // 构造回复消息
+        const builder = new Builder({ rootName: "xml", headless: true, cdata: true });
+        const replyMsg = {
+          ToUserName: toUser,
+          FromUserName: fromUser,
+          CreateTime: Math.floor(Date.now() / 1000),
+          MsgType: "text",
+          Content: "你好 👋！这是 Vercel 自动回复。",
+        };
+
+        const replyXml = builder.buildObject(replyMsg);
 
         res.setHeader("Content-Type", "application/xml");
-        res.status(200).send(reply);
-      });
+        res.status(200).send(replyXml);
+      } catch (e) {
+        console.error("消息解析失败:", e);
+        res.status(500).send("Internal Server Error");
+      }
     });
   } else {
     res.status(405).send("Method Not Allowed");
