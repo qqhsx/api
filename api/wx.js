@@ -1,9 +1,10 @@
 import crypto from "crypto";
+import { parseString } from "xml2js";
 
 // 你在微信公众平台配置的 Token
 const TOKEN = "weixin";
 
-export default function handler(req, res) {
+export default async function handler(req, res) {
   if (req.method === "GET") {
     // 微信服务器验证
     const { signature, timestamp, nonce, echostr } = req.query;
@@ -25,19 +26,31 @@ export default function handler(req, res) {
     req.on("end", () => {
       console.log("收到微信消息：", body);
 
-      // 此处简单返回一条文本消息（需替换为真实的 FromUserName/ToUserName）
-      const reply = `
-        <xml>
-          <ToUserName><![CDATA[oOpenID]]></ToUserName>
-          <FromUserName><![CDATA[gh_xxxxx]]></FromUserName>
-          <CreateTime>${Math.floor(Date.now() / 1000)}</CreateTime>
-          <MsgType><![CDATA[text]]></MsgType>
-          <Content><![CDATA[你好！这是 Vercel 自动回复。]]></Content>
-        </xml>
-      `;
+      // 解析 XML
+      parseString(body, { explicitArray: false }, (err, result) => {
+        if (err) {
+          res.status(400).send("Invalid XML");
+          return;
+        }
 
-      res.setHeader("Content-Type", "application/xml");
-      res.status(200).send(reply);
+        const msg = result.xml;
+        const fromUser = msg.FromUserName;
+        const toUser = msg.ToUserName;
+
+        // 构造回复（交换 from/to）
+        const reply = `
+          <xml>
+            <ToUserName><![CDATA[${fromUser}]]></ToUserName>
+            <FromUserName><![CDATA[${toUser}]]></FromUserName>
+            <CreateTime>${Math.floor(Date.now() / 1000)}</CreateTime>
+            <MsgType><![CDATA[text]]></MsgType>
+            <Content><![CDATA[你发了: ${msg.Content || "其他消息"}]]></Content>
+          </xml>
+        `;
+
+        res.setHeader("Content-Type", "application/xml");
+        res.status(200).send(reply);
+      });
     });
   } else {
     res.status(405).send("Method Not Allowed");
