@@ -1,47 +1,84 @@
 import { TextDecoder } from "util";
+import crypto from "crypto";
+import xml2js from "xml2js";
 
-export const config = {
-  api: {
-    bodyParser: false, // 关闭默认 bodyParser，直接获取原始 body
-  },
+export const config = { api: { bodyParser: false } };
+const TOKEN = "weixin";
+
+// 解析 XML
+async function parseXML(xml) {
+  return new Promise((resolve, reject) => {
+    xml2js.parseString(
+      xml,
+      { trim: true, explicitArray: false, explicitRoot: false },
+      (err, result) => {
+        if (err) reject(err);
+        else resolve(result);
+      }
+    );
+  });
+}
+
+// 构建文本回复
+function buildTextReply(toUser, fromUser, content) {
+  const time = Math.floor(Date.now() / 1000);
+  return `<xml>
+    <ToUserName><![CDATA[${toUser}]]></ToUserName>
+    <FromUserName><![CDATA[${fromUser}]]></FromUserName>
+    <CreateTime>${time}</CreateTime>
+    <MsgType><![CDATA[text]]></MsgType>
+    <Content><![CDATA[${content}]]></Content>
+  </xml>`;
+}
+
+// 校验 signature
+function checkSignature(query) {
+  const { signature, timestamp, nonce } = query;
+  const arr = [TOKEN, timestamp, nonce].sort();
+  const str = arr.join("");
+  const hash = crypto.createHash("sha1").update(str).digest("hex");
+  return hash === signature;
+}
+
+// 关键词回复字典
+const keywordReplies = {
+  "女性瘾者": "女性瘾者1-2（迅雷）链接：https://pan.xunlei.com/s/VNGqrIpAg2pPRHX6ZZmzacNdA1# 提取码：r5yn",
+  "测试": "这是测试自动回复内容",
+  // 可以继续添加更多关键词和对应内容
 };
 
 export default async function handler(req, res) {
-  console.log("收到请求:", req.method, req.query);
-
   if (req.method === "GET") {
-    // GET 请求，返回 echostr 或 "ok"
     const { echostr } = req.query;
-    console.log("GET 请求 echostr:", echostr);
-    res.status(200).send(echostr || "ok");
-  } else if (req.method === "POST") {
-    // 直接获取原始 Buffer
-    const chunks = [];
-    for await (const chunk of req) {
-      chunks.push(chunk);
+    if (checkSignature(req.query)) {
+      res.status(200).send(echostr || "ok");
+    } else {
+      res.status(403).send("Invalid signature");
     }
+  } else if (req.method === "POST") {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
     const rawBody = Buffer.concat(chunks);
     const body = new TextDecoder("utf-8").decode(rawBody);
-    console.log("📩 收到 POST 消息:", body);
 
-    // 简单提取 FromUserName / ToUserName
-    const toUserMatch = body.match(/<FromUserName><!\[CDATA\[(.+?)\]\]><\/FromUserName>/);
-    const fromUserMatch = body.match(/<ToUserName><!\[CDATA\[(.+?)\]\]><\/ToUserName>/);
-    const toUser = toUserMatch ? toUserMatch[1] : "user";
-    const fromUser = fromUserMatch ? fromUserMatch[1] : "server";
+    let msg;
+    try {
+      msg = await parseXML(body);
+    } catch (e) {
+      res.status(400).send("Bad Request");
+      return;
+    }
 
-    // 固定回复
-    const reply = `
-      <xml>
-        <ToUserName><![CDATA[${toUser}]]></ToUserName>
-        <FromUserName><![CDATA[${fromUser}]]></FromUserName>
-        <CreateTime>${Math.floor(Date.now() / 1000)}</CreateTime>
-        <MsgType><![CDATA[text]]></MsgType>
-        <Content><![CDATA[收到消息！]]></Content>
-      </xml>
-    `;
+    const toUser = msg.FromUserName || "user";
+    const fromUser = msg.ToUserName || "server";
+    const content = (msg.Content || "").trim();
+
+    // 根据关键词回复内容
+    let replyContent = keywordReplies[content] || "未匹配到关键词，默认回复：收到消息！";
+
+    const replyXML = buildTextReply(toUser, fromUser, replyContent);
     res.setHeader("Content-Type", "application/xml");
-    res.status(200).send(reply);
+    res.status(200).send(replyXML);
   } else {
     res.status(405).send("Method Not Allowed");
   }
