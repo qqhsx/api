@@ -2,18 +2,28 @@
 import crypto from "crypto";
 import { parseString } from "xml2js";
 
+// 微信 TOKEN
 const TOKEN = "weixin";
 
 // 小宇搜索 API 请求
-async function searchMovie(keyword) {
+async function searchMovie(keyword, page = 1) {
   try {
-    const resp = await fetch(`https://xykmovie.com/search?key=${encodeURIComponent(keyword)}`);
+    const url = `https://xykmovie.com/s/${page}/${encodeURIComponent(keyword)}`;
+    const resp = await fetch(url, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
+      },
+    });
+
+    if (!resp.ok) throw new Error(`请求失败: ${resp.status}`);
     const text = await resp.text();
 
-    // 提取 <a class="copy" data-code="..."> 的属性
+    // 提取 <a class="copy" data-code="...">
     const matches = [...text.matchAll(/<a[^>]+class="copy"[^>]+data-code="([^"]+)"/g)];
+
     return matches.length > 0
-      ? matches.slice(0, 5).map(m => m[1]).join("\n")
+      ? matches.slice(0, 5).map((m, i) => `${String(i + 1).padStart(2, "0")}. ${m[1]}`).join("\n")
       : "未找到结果";
   } catch (e) {
     console.error("搜索失败：", e);
